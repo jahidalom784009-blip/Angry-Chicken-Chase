@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#ff6b35">
+<meta name="description" content="Angry Chicken Chase — a colorful endless cartoon runner game.">
+<link rel="manifest" href="manifest.json">
+<title>Angry Chicken Chase</title>
+<style>
+:root{--orange:#ff6b35;--yellow:#ffe66d;--pink:#ff7eb6;--ink:#28234d}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#292052;color:white;font-family:system-ui,-apple-system,Segoe UI,sans-serif;touch-action:manipulation}
+body{display:flex;align-items:center;justify-content:center;padding:8px}.shell{width:min(1000px,100%);display:flex;flex-direction:column;gap:9px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.logo{font-size:clamp(18px,3vw,28px);font-weight:1000;letter-spacing:-.8px}.logo span{color:var(--yellow)}
+.stats{display:flex;gap:7px}.pill{border:1px solid #ffffff38;background:#ffffff18;border-radius:13px;padding:7px 11px;font-size:13px;font-weight:900}
+button{border:0;border-radius:13px;background:var(--yellow);color:#34294a;font-weight:1000;padding:10px 13px;font-size:13px;cursor:pointer;box-shadow:0 4px 0 #c99c2c;touch-action:manipulation}button:active{transform:translateY(3px);box-shadow:0 1px 0 #c99c2c}.secondary{background:#ffffff20;color:#fff;border:1px solid #ffffff38;box-shadow:0 4px 0 #17132f}
+.stage{position:relative;overflow:hidden;border:4px solid #ffffff28;border-radius:22px;background:#78dcff;box-shadow:0 18px 45px #0005}
+canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;touch-action:none}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:18px;text-align:center;background:#21194ac9}.panel{background:#fff;color:var(--ink);max-width:480px;border:4px solid #fff;border-radius:24px;padding:23px;box-shadow:0 10px 0 #342c68}.panel h1{font-size:clamp(25px,5vw,42px);line-height:1;margin:0 0 9px}.panel p{line-height:1.5;margin:9px 0 17px}.panel button{font-size:16px;padding:13px 20px}.controls{display:flex;justify-content:space-between;align-items:center;gap:10px}.group{display:flex;gap:8px}.ctrl{min-width:64px;min-height:54px;font-size:20px;border-radius:16px}.jump{background:var(--pink);box-shadow:0 4px 0 #bd4d82}.dash{background:#55efc4;box-shadow:0 4px 0 #269c83}.hint{font-size:11px;color:#c8c1f5;text-align:center}.status{display:flex;justify-content:space-between;font-size:12px;color:#d8d2ff;padding:0 4px}
+@media(min-width:700px){.controls{width:620px;max-width:100%;margin:auto}.ctrl{min-width:76px;min-height:56px}}
+@media(max-width:430px){body{padding:5px}.pill{font-size:11px;padding:6px 8px}.stage{border-width:2px;border-radius:14px}.ctrl{min-width:54px;min-height:49px}.top{gap:6px}}
+</style>
+</head>
+<body>
+<div class="shell">
+ <div class="top">
+  <div class="logo">🐔 ANGRY <span>CHICKEN CHASE</span></div>
+  <div class="stats"><div class="pill">🏆 <span id="score">0</span></div><div class="pill">🌽 <span id="corn">0</span></div><div class="pill">BEST <span id="best">0</span></div></div>
+  <div class="group"><button class="secondary" id="sound">🔊 Sound</button><button class="secondary" id="restart">↻ Restart</button></div>
+ </div>
+ <div class="stage">
+  <canvas id="game" width="960" height="540"></canvas>
+  <div class="overlay" id="overlay"><div class="panel"><div style="font-size:48px">🐔💨🥚</div><h1 id="title">ANGRY CHICKEN CHASE!</h1><p id="message">You stole the chicken’s corn! Run forever, jump over farm chaos, collect corn, and don’t let the furious chicken catch you.</p><button id="start">▶ START RUNNING</button><p style="font-size:12px;margin-bottom:0">Keyboard: Space / ↑ to jump · ↓ to slide</p></div></div>
+ </div>
+ <div class="status"><span>🌽 Collect corn • dodge crates, rocks & puddles</span><span id="state">Ready, runner?</span></div>
+ <div class="controls">
+  <div class="group"><button class="ctrl secondary" id="slide">⬇ SLIDE</button></div>
+  <div class="group"><button class="ctrl dash" id="dash">💨 DASH</button><button class="ctrl jump" id="jump">⬆ JUMP</button></div>
+ </div>
+ <div class="hint">Mobile: tap JUMP to leap, hold SLIDE to duck, tap DASH for a short speed burst.</div>
+</div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),W=canvas.width,H=canvas.height,ground=430;
+const $=id=>document.getElementById(id);
+let running=false,over=false,paused=false,muted=false,ac=null,frame=0,score=0,corn=0,best=Number(localStorage.getItem('acc-best')||0),speed=5,world=0,spawn=0,obstacles=[],corns=[],particles=[],keys={},touch={};
+$('best').textContent=best;
+function beep(f=440,d=.07){if(muted)return;try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();let o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.value=f;g.gain.value=.04;o.connect(g);g.connect(ac.destination);o.start();g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.stop(ac.currentTime+d)}catch(e){}}
+const rnd=(a,b)=>a+Math.random()*(b-a);
+function reset(){frame=0;score=0;corn=0;speed=5;world=0;spawn=0;obstacles=[];corns=[];particles=[];player={x:155,y:ground-58,w:48,h:58,vy:0,onGround:true,slide:0,dash:0,blink:0};chicken={x:45,y:ground-65,w:60,h:65};$('score').textContent='0';$('corn').textContent='0';$('state').textContent='The chicken is MAD!';}
+function start(){reset();running=true;over=false;paused=false;$('overlay').style.display='none';beep(580)}
+function end(){running=false;over=true;best=Math.max(best,score);localStorage.setItem('acc-best',best);$('best').textContent=best;$('title').textContent='🐔 CAUGHT BY THE CHICKEN!';$('message').textContent=`You scored ${score} points and collected ${corn} corn. The chicken says: “BAWK BAWK!” Try again and beat your best score!`;$('start').textContent='↻ RUN AGAIN';$('overlay').style.display='flex';$('state').textContent='Chase over!';beep(120,.2)}
+function rect(x,y,w,h,c,r=0){ctx.fillStyle=c;if(r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}else ctx.fillRect(x,y,w,h)}
+function circ(x,y,r,c){ctx.fillStyle=c;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()}
+function cloud(x,y,s=1){circ(x,y,22*s,'#ffffffb9');circ(x+23*s,y-7*s,28*s,'#ffffffb9');circ(x+50*s,y,20*s,'#ffffffb9')}
+function drawBg(){
+ let sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#63d9ff');sky.addColorStop(1,'#d5fbff');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ for(let i=0;i<6;i++){let x=((i*210-world*.22)%(W+180)+W+180)%(W+180)-70;cloud(x,70+(i%3)*35,.8+(i%2)*.2)}
+ // sun
+ circ(835,82,42,'#ffe66d');circ(835,82,32,'#fff1a3');
+ // rolling hills
+ ctx.fillStyle='#6edb9b';ctx.beginPath();ctx.moveTo(0,ground);for(let x=0;x<=W;x+=20)ctx.lineTo(x,ground-65-Math.sin((x+world*.3)/100)*22);ctx.lineTo(W,ground);ctx.fill();
+ ctx.fillStyle='#48c985';ctx.beginPath();ctx.moveTo(0,ground);for(let x=0;x<=W;x+=20)ctx.lineTo(x,ground-28-Math.sin((x+world*.5)/80)*14);ctx.lineTo(W,ground);ctx.fill();
+ // distant barn
+ let bx=650-(world*.12%1000);if(bx<-160)bx+=1000;
+ rect(bx,255,135,120,'#ff7b54',8);ctx.fillStyle='#e85c52';ctx.beginPath();ctx.moveTo(bx-14,260);ctx.lineTo(bx+67,197);ctx.lineTo(bx+149,260);ctx.fill();rect(bx+48,300,42,75,'#ffe7a6',5);rect(bx+15,278,28,28,'#a5ecff',4);rect(bx+95,278,25,28,'#a5ecff',4);
+ // fence
+ for(let x=-(world*.7%90);x<W;x+=90){rect(x,ground-53,8,53,'#f8e4ad',3);rect(x+25,ground-48,8,48,'#f8e4ad',3);rect(x-4,ground-43,45,8,'#fff1c7',3);rect(x-4,ground-20,45,8,'#fff1c7',3)}
+ // ground
+ rect(0,ground,W,H-ground,'#e5b76a');rect(0,ground,W,13,'#fff0b2');
+ for(let x=-(world%70);x<W;x+=70){rect(x,ground+24,33,6,'#c98d4d',3);rect(x+35,ground+58,19,5,'#c98d4d',3)}
+ // grass tufts
+ for(let x=-(world%55);x<W;x+=55){ctx.strokeStyle='#36ad68';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x,ground+1);ctx.lineTo(x-5,ground-10);ctx.moveTo(x,ground+1);ctx.lineTo(x+5,ground-13);ctx.stroke()}
+}
+function drawChicken(x,y,angry=true,scale=1){
+ ctx.save();ctx.translate(x,y);ctx.scale(scale,scale);
+ // feet
+ rect(14,51,6,14,'#f28c28',3);rect(35,51,6,14,'#f28c28',3);rect(7,62,17,5,'#f28c28',3);rect(30,62,17,5,'#f28c28',3);
+ // fluffy body
+ circ(29,36,25,'#fffaf0');circ(13,39,15,'#fffaf0');circ(43,39,15,'#fffaf0');
+ // wing
+ ctx.fillStyle='#f4e9d5';ctx.beginPath();ctx.ellipse(29,43,13,8,-.3,0,Math.PI*2);ctx.fill();
+ // comb
+ circ(18,8,7,'#ff4d6d');circ(29,5,8,'#ff4d6d');circ(39,9,7,'#ff4d6d');
+ // beak
+ ctx.fillStyle='#ffb52e';ctx.beginPath();ctx.moveTo(47,22);ctx.lineTo(62,29);ctx.lineTo(47,34);ctx.fill();
+ // eyes
+ circ(28,20,8,'#fff');circ(31,21,4,'#262044');circ(45,20,8,'#fff');circ(42,21,4,'#262044');
+ if(angry){ctx.strokeStyle='#292044';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(23,10);ctx.lineTo(32,15);ctx.moveTo(47,14);ctx.lineTo(39,17);ctx.stroke()}
+ ctx.restore();
+}
+function drawRunner(){
+ let y=player.y, h=player.slide>0?34:58, yy=player.slide>0?player.y+24:y;
+ // little kid runner
+ circ(player.x+25,yy+48,25,'#37265020');
+ rect(player.x+6,yy+31,13,22,'#4169e1',5);rect(player.x+27,yy+31,13,22,'#4169e1',5);
+ rect(player.x+1,yy+49,22,8,'#33264b',4);rect(player.x+24,yy+49,22,8,'#33264b',4);
+ rect(player.x+3,yy+15,39,27,'#ff7eb6',9);rect(player.x+17,yy+17,9,19,'#ffe66d',3);
+ circ(player.x+24,yy+10,20,'#f6bd8e');circ(player.x+10,yy+9,5,'#f6bd8e');circ(player.x+39,yy+9,5,'#f6bd8e');
+ // hair
+ circ(player.x+18,yy-3,10,'#4b315d');circ(player.x+29,yy-2,11,'#4b315d');
+ circ(player.x+19,yy+10,2,'#29234d');circ(player.x+30,yy+10,2,'#29234d');rect(player.x+21,yy+17,9,2,'#b94e68',1);
+ if(player.dash>0){for(let i=0;i<4;i++)rect(player.x-12-i*13,yy+20+i%2*12,9,3,'#fff8a6',2)}
+ if(player.blink>0&&frame%4<2){ctx.globalAlpha=.4}
+ ctx.globalAlpha=1;
+}
+function drawObstacle(o){
+ if(o.x<-80||o.x>W+80)return;
+ if(o.type==='crate'){rect(o.x,o.y,o.w,o.h,'#bf7741',6);rect(o.x+5,o.y+5,o.w-10,o.h-10,'#e8aa5e',4);ctx.strokeStyle='#a65c35';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(o.x+5,o.y+5);ctx.lineTo(o.x+o.w-5,o.y+o.h-5);ctx.moveTo(o.x+o.w-5,o.y+5);ctx.lineTo(o.x+5,o.y+o.h-5);ctx.stroke()}
+ else if(o.type==='rock'){circ(o.x+o.w/2,o.y+o.h/2,o.w/2,'#8987a9');circ(o.x+o.w/2-5,o.y+o.h/2-4,5,'#b5b3cc');}
+ else if(o.type==='puddle'){ctx.fillStyle='#5bc0eb';ctx.beginPath();ctx.ellipse(o.x+o.w/2,o.y+o.h/2,o.w/2,o.h/2,0,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#d8f7ff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(o.x+o.w/2,o.y+o.h/2,7,Math.PI,Math.PI*1.8);ctx.stroke()}
+ else { // hay bale
+ rect(o.x,o.y,o.w,o.h,'#f6c85f',10);for(let y=o.y+8;y<o.y+o.h;y+=9){rect(o.x+4,y,o.w-8,2,'#d99c3e',1)}
+ }
+}
+function draw(){
+ drawBg();
+ for(const o of obstacles)drawObstacle(o);
+ for(const f of corns){if(f.got)continue;let y=f.y+Math.sin(frame*.09+f.phase)*5;circ(f.x,y,12,'#ffe66d');circ(f.x,y,8,'#fff4b0');ctx.fillStyle='#e9a72b';ctx.font='bold 13px system-ui';ctx.fillText('★',f.x-5,y+5)}
+ // runner and angry chicken
+ drawRunner();drawChicken(chicken.x,chicken.y,true,.92);
+ // distance meter
+ rect(18,18,200,12,'#ffffff8a',6);rect(18,18,200*Math.min(1,score/500),12,'#ffe66d',6);ctx.fillStyle='#34294a';ctx.font='bold 13px system-ui';ctx.fillText('ENDLESS FARM RUN',20,13);
+ if(chicken.x+60>player.x-35){rect(W-220,20,200,35,'#ff4757',12);ctx.fillStyle='#fff';ctx.font='bold 14px system-ui';ctx.fillText('⚠ ANGRY CHICKEN!',W-208,42)}
+}
+function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function update(){
+ if(!running||paused)return;
+ frame++;world+=speed;score+=1;speed=Math.min(11,5+score/700);
+ if(player.slide>0)player.slide--;
+ if(player.dash>0)player.dash--;
+ if(player.blink>0)player.blink--;
+ if((keys.Space||keys.ArrowUp||keys.w||touch.jump)&&player.onGround){player.vy=-13;player.onGround=false;beep(550)}
+ if(touch.slide||keys.ArrowDown||keys.s)player.slide=3;
+ if(touch.dash&&player.dash===0){player.dash=18;touch.dash=false;beep(720,.1)}
+ player.vy+=.62;player.y+=player.vy;
+ if(player.y+player.h>=ground){player.y=ground-player.h;player.vy=0;player.onGround=true}
+ // obstacles spawn with gaps
+ spawn--;
+ if(spawn<=0){let type=['crate','rock','puddle','hay'][Math.floor(Math.random()*4)];let w=type==='crate'?42:type==='rock'?34:type==='puddle'?65:50;let h=type==='crate'?44:type==='rock'?32:type==='puddle'?15:36;obstacles.push({x:W+30,y:ground-h,w,h,type});spawn=Math.max(42,Math.floor(rnd(58,96)-speed*2))}
+ if(Math.random()<.024){corns.push({x:W+25,y:ground-rnd(75,160),phase:rnd(0,6),got:false})}
+ obstacles.forEach(o=>o.x-=speed+(player.dash>0?4:0));corns.forEach(f=>f.x-=speed);
+ obstacles=obstacles.filter(o=>o.x+o.w>-20);corns=corns.filter(f=>f.x>-20&&!f.got);
+ // collisions: sliding ducks under crates? slide helps only low puddle/hay; jump over most
+ const ph={x:player.x+7,y:player.y+(player.slide>0?26:5),w:player.w-13,h:player.slide>0?27:player.h-8};
+ for(const o of obstacles){let ob={x:o.x+4,y:o.y+3,w:o.w-8,h:o.h-4};if(hit(ph,ob)){if(player.dash>0){o.x=-200;score+=5;beep(320)}else{end();return}}}
+ for(const f of corns){if(!f.got&&Math.abs(f.x-(player.x+24))<30&&Math.abs(f.y-(player.y+25))<48){f.got=true;corn++;score+=25;beep(850,.08)}}
+ // chicken gains when runner is hit by no food? steadily trails, but moves closer as speed rises
+ chicken.x=Math.min(player.x-12,chicken.x+0.5+score/10000);
+ if(chicken.x+55>=player.x+3){end();return}
+ $('score').textContent=score;$('corn').textContent=corn;$('state').textContent='Keep running! Speed '+speed.toFixed(1);
+ draw();
+}
+function loop(){update();if(!running||paused)draw();requestAnimationFrame(loop)}
+function hold(id,k){let el=$(id);el.addEventListener('pointerdown',e=>{e.preventDefault();touch[k]=true});for(let ev of ['pointerup','pointercancel','pointerleave'])el.addEventListener(ev,e=>{e.preventDefault();touch[k]=false})}
+hold('jump','jump');hold('slide','slide');
+$('dash').addEventListener('pointerdown',e=>{e.preventDefault();touch.dash=true});
+window.addEventListener('keydown',e=>{if(['Space','ArrowUp','ArrowDown'].includes(e.code))e.preventDefault();keys[e.key]=true;if(e.code==='Space')keys.Space=true});
+window.addEventListener('keyup',e=>{keys[e.key]=false;if(e.code==='Space')keys.Space=false});
+$('start').onclick=start;$('restart').onclick=start;
+$('sound').onclick=()=>{muted=!muted;$('sound').textContent=muted?'🔇 Muted':'🔊 Sound';if(!muted)beep(600)};
+reset();draw();loop();
+if('serviceWorker'in navigator&&location.protocol.startsWith('http'))window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+})();
+</script>
+</body></html>
